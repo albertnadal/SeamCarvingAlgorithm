@@ -4,10 +4,12 @@ from typing import Optional
 from typing import Tuple
 
 import math
+import sys
 
 image = Image.open("original.jpg")
 image = image.convert('RGB')
-pixels = image.load()
+
+sys.setrecursionlimit(image.height + 10)
 
 def getpixel(image: Image, x: int, y: int) -> Tuple[int]:
     x = 0 if x < 0 else min(x, image.width)
@@ -55,7 +57,7 @@ for x in range(grayscale_image.width):
 
 energy_image = Image.new("RGB", (image.width, image.height))
 
-# Save the energy map in a image file
+# Save the initial energy map in a image file
 for x in range(image.width):
     for y in range(image.height):
         color_component = 0 if max_magnitude == 0 else int((energy_map[x][y]["energy"] * 255) // max_magnitude)
@@ -63,74 +65,94 @@ for x in range(image.width):
 
 energy_image.save("energy.jpg", quality=100)
 
-# Calculate seam paths in the energy map
-for y in range(image.height - 1):
-    for x in range(image.width):
-        if x > 0:
-            current_bottom_left_sum = energy_map[x-1][y+1]["sum"]
-            bottom_left_energy_sum = energy_map[x-1][y+1]["energy"] + energy_map[x][y]["sum"]
-            if current_bottom_left_sum is None or current_bottom_left_sum > bottom_left_energy_sum:
-                energy_map[x-1][y+1]["sum"] = bottom_left_energy_sum
-                energy_map[x][y]["directions"].append(-1)
-                if 0 in energy_map[x-1][y]["directions"]:
-                    energy_map[x-1][y]["directions"].remove(0)
+width = image.width
+total_hor_pixels_to_crop = 400
 
-                if x > 1 and 1 in energy_map[x-2][y]["directions"]:
-                    energy_map[x-2][y]["directions"].remove(1)
+for iteration in range(total_hor_pixels_to_crop):
+    seams_found: List[Tuple[int, List[Tuple[int, int]]]] = []
 
-        current_bottom_sum = energy_map[x][y+1]["sum"]
-        bottom_energy_sum = energy_map[x][y+1]["energy"] + energy_map[x][y]["sum"]
-        if current_bottom_sum is None or current_bottom_sum >= bottom_energy_sum:
-            energy_map[x][y+1]["sum"] = bottom_energy_sum
-            energy_map[x][y]["directions"].append(0)
-            if x > 0 and 1 in energy_map[x-1][y]["directions"]:
-                energy_map[x-1][y]["directions"].remove(1)
+    # Calculate seam paths in the energy map
+    for y in range(image.height - 1):
+        for x in range(width):
+            if x > 0:
+                current_bottom_left_sum = energy_map[x-1][y+1]["sum"]
+                bottom_left_energy_sum = energy_map[x-1][y+1]["energy"] + energy_map[x][y]["sum"]
+                if (current_bottom_left_sum is None or current_bottom_left_sum > bottom_left_energy_sum):
+                    energy_map[x-1][y+1]["sum"] = bottom_left_energy_sum
+                    energy_map[x][y]["directions"].append(-1)
+                    if 0 in energy_map[x-1][y]["directions"]:
+                        energy_map[x-1][y]["directions"].remove(0)
 
-        if x <= image.width - 2:
-            energy_map[x+1][y+1]["sum"] = energy_map[x+1][y+1]["energy"] + energy_map[x][y]["sum"]
-            energy_map[x][y]["directions"].append(1)
+                    if x > 1 and 1 in energy_map[x-2][y]["directions"]:
+                        energy_map[x-2][y]["directions"].remove(1)
 
-# Get seams with the lowest energy
-def get_seam_at_position(x: int, y: int = 0) -> Optional[Tuple[int, List]]:
-    if y == image.height - 1:
-        return (energy_map[x][y]["sum"], [(x, y)])
+            current_bottom_sum = energy_map[x][y+1]["sum"]
+            bottom_energy_sum = energy_map[x][y+1]["energy"] + energy_map[x][y]["sum"]
+            if current_bottom_sum is None or current_bottom_sum >= bottom_energy_sum:
+                energy_map[x][y+1]["sum"] = bottom_energy_sum
+                energy_map[x][y]["directions"].append(0)
+                if x > 0 and 1 in energy_map[x-1][y]["directions"]:
+                    energy_map[x-1][y]["directions"].remove(1)
 
-    if not len(energy_map[x][y]["directions"]):
-        return None
+            if x <= width - 2:
+                energy_map[x+1][y+1]["sum"] = energy_map[x+1][y+1]["energy"] + energy_map[x][y]["sum"]
+                energy_map[x][y]["directions"].append(1)
 
-    best_sub_seam: List[Tuple[int, int]] = None
-    lowest_energy: int = None
-    for direction_delta in energy_map[x][y]["directions"]:
-        sub_seam: Optional[Tuple[int, List]] = get_seam_at_position(x=x+direction_delta, y=y+1)
-        if sub_seam is not None:
-            if lowest_energy is None or sub_seam[0] < lowest_energy:
-                lowest_energy = sub_seam[0]
-                best_sub_seam = sub_seam[1]
+    # Get seams with the lowest energy
+    def get_seam_at_position(x: int, y: int = 0) -> Optional[Tuple[int, List[int]]]:
+        if y == image.height - 1:
+            return (energy_map[x][y]["sum"], [x])
 
-    if best_sub_seam is None:
-        return None
+        if not len(energy_map[x][y]["directions"]):
+            return None
 
-    return (lowest_energy, [(x, y)] + best_sub_seam)
+        best_sub_seam: List[int] = None
+        lowest_energy: int = None
 
+        for direction_delta in energy_map[x][y]["directions"]:
+            sub_seam: Optional[Tuple[int, List[int]]] = get_seam_at_position(x=x+direction_delta, y=y+1)
+            if sub_seam is not None:
+                if lowest_energy is None or sub_seam[0] < lowest_energy:
+                    lowest_energy = sub_seam[0]
+                    best_sub_seam = sub_seam[1]
 
-seams: List[Tuple[int, List[Tuple[int, int]]]] = []
-for x in range(image.width):
-    seam: Optional[Tuple[int, List]] = get_seam_at_position(x)
-    if seam is not None:
-        seams.append(seam)
+        if best_sub_seam is None:
+            return None
 
-# Sort seams according to the energy
-sorted_seams = sorted(seams, key=lambda x: x[0])
+        return (lowest_energy, [x] + best_sub_seam)
 
-# Draw seams and store in a file
-seams_image = Image.new("RGB", (image.width, image.height))
+    # Get the seam for each x position of the image
+    for x in range(width):
+        seam: Optional[Tuple[int, List[int]]] = get_seam_at_position(x)
+        if seam is not None:
+            seams_found.append(seam)
 
-for x in range(image.width):
+    # Sort seams according to the energy
+    sorted_seams = sorted(seams_found, key=lambda x: x[0])
+
+    # Get the seam with the lowest energy
+    best_seam = sorted_seams[0]
+
+    # Crop the image and the energy map by removing the pixels of the selected seam
+    width-=1
+    new_energy_map = [[{"energy": 0, "sum": None, "directions": []} for _ in range(image.height)] for _ in range(width)]
+    cropped_image = Image.new("RGB", (width, image.height))
+
     for y in range(image.height):
-        seams_image.putpixel((x, y), energy_image.getpixel((x, y)))
+        end_x = min(width, best_seam[1][y])
+        for x in range(0, end_x):
+            cropped_image.putpixel((x, y), image.getpixel((x, y)))
+            new_energy_map[x][y]["energy"] = energy_map[x][y]["energy"]
+            if y == 0:
+                new_energy_map[x][y]["sum"] = energy_map[x][y]["energy"]
 
-for seam in seams:
-    for position in seam[1]:
-        seams_image.putpixel(position, (200, 100, 50))
+        for x in range(end_x, width):
+            cropped_image.putpixel((x, y), image.getpixel((x+1, y)))
+            new_energy_map[x][y]["energy"] = energy_map[x+1][y]["energy"]
+            if y == 0:
+                new_energy_map[x][y]["sum"] = energy_map[x+1][y]["energy"]
 
-seams_image.save("seams.jpg", quality=100)
+    image = cropped_image
+    energy_map = new_energy_map
+
+    image.save(f"cropped_{iteration}.jpg", quality=100)
