@@ -189,3 +189,5 @@ for iteration in range(num_pixels_to_crop):
     image = cropped_image
     energy_map = new_energy_map
     image.save(f"cropped_{iteration}.jpg", quality=100)
+
+image.save(f"cropped.jpg", quality=100)
