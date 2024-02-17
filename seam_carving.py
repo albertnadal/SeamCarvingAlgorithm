@@ -14,7 +14,7 @@ image = image.convert("RGB")
 
 assert (
     image.width > DESIRED_IMAGE_WIDTH
-), f"The width of the image ({image.width}) must be higher than the desired width ({DESIRED_IMAGE_WIDTH})."
+), f"The width of the original image ({image.width}) must be higher than the DESIRED_IMAGE_WIDTH ({DESIRED_IMAGE_WIDTH})."
 
 sys.setrecursionlimit(image.height + 10)
 
